@@ -1,0 +1,78 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1504\cocoasubrtf820
+{\fonttbl\f0\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\sl280\partightenfactor0
+
+\f0\fs24 \cf2 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 #Prithvi Lakshminarayanan\
+#4-11-2016\
+\
+from pyspark import SparkConf\
+import pyspark_cassandra\
+from pyspark.sql import SQLContext\
+\
+import sys\
+\
+#converting rows to list\
+\
+cluster_seeds = ['199.60.17.136', '199.60.17.173']\
+conf = SparkConf().set('spark.cassandra.connection.host', ','.join(cluster_seeds))\\\
+    .set('spark.dynamicAllocation.maxExecutors', 20)\
+sc = pyspark_cassandra.CassandraSparkContext(conf=conf)\
+sqlContext = SQLContext(sc)\
+\
+input_keyspace = sys.argv[1]\
+output_keyspace = sys.argv[2]\
+\
+def rows_to_list(key_vals, key_col, val_col, list_col):\
+\
+    def listappend(lst, v):\
+        lst.append(v)\
+        return lst\
+\
+    def listjoin(lst1, lst2):\
+        lst1.extend(lst2)\
+        return lst1\
+\
+    assert key_vals.columns == [key_col, val_col], 'key_vals must have two columns: your key_col and val_col'\
+    key_val_rdd = key_vals.rdd.map(tuple)\
+    key_list_rdd = key_val_rdd.aggregateByKey([], listappend, listjoin)\
+    return sqlContext.createDataFrame(key_list_rdd, schema=[key_col, list_col])\
+\
+def df_for(keyspace, table, split_size=None):\
+    df = sqlContext.createDataFrame(sc.cassandraTable(keyspace, table, split_size=split_size).setName(table))\
+    df.registerTempTable(table)\
+    return df\
+\
+def creat_dict(row):\
+    comment=row['comment']\
+    ship_priority=row['ship_priority']\
+    totalprice=row['totalprice']\
+    custkey=row['custkey']\
+    clerk=row['clerk']\
+    orderdate=row['orderdate']\
+    orderkey=row['orderkey']\
+    order_priority=row['order_priority']\
+    orderstatus=row['orderstatus']\
+    part_names=row['part_names']\
+\
+    return\{'comment':comment,'ship_priority': ship_priority,\
+           'totalprice':totalprice,'custkey':custkey,\
+           'clerk': clerk,'orderdate': orderdate,\
+           'orderkey': orderkey,'order_priority':order_priority,\
+           'orderstatus':orderstatus,'part_names':part_names\
+           \}\
+\
+lineitem_df=df_for(input_keyspace,'lineitem',None).cache()\
+part_df=df_for(input_keyspace,'part',None).cache()\
+orders_df=df_for(input_keyspace,'orders',None).cache()\
+\
+df=lineitem_df.join(part_df,['partkey']).select('orderkey','name')\
+df_order_name=rows_to_list(df,'orderkey','name','part_names').cache()\
+\
+res=orders_df.join(df_order_name,orders_df['orderkey']==df_order_name['orderkey']).drop(df_order_name['orderkey']).cache()\
+res.rdd.map(creat_dict).saveToCassandra(output_keyspace,'orders_parts')\
+}

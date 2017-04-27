@@ -1,0 +1,59 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1504\cocoasubrtf820
+{\fonttbl\f0\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\margl1440\margr1440\vieww25400\viewh13180\viewkind0
+\deftab720
+\pard\pardeftab720\sl280\partightenfactor0
+
+\f0\fs24 \cf2 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 #Prithvi Lakshminarayanan\
+#2-11-2016\
+\
+from pyspark import SparkConf\
+import pyspark_cassandra\
+import sys\
+from pyspark.sql import SQLContext\
+import math\
+\
+cluster_seeds = ['199.60.17.136', '199.60.17.173']\
+conf = SparkConf().set('spark.cassandra.connection.host', ','.join(cluster_seeds))\
+sc = pyspark_cassandra.CassandraSparkContext(conf=conf)\
+sqlContext = SQLContext(sc)\
+\
+keyspace = sys.argv[1]\
+output=sys.argv[2]\
+\
+def rdd_for(keyspace, table, split_size=None):\
+    rdd = sc.cassandraTable(keyspace, table, split_size=split_size,\
+                            row_format=pyspark_cassandra.RowFormat.DICT).setName(table)\
+    return rdd\
+\
+def add_tuples(a, b):\
+    return tuple(sum(q) for q in zip(a,b))\
+\
+table_name='nasalogs'\
+nasalogs_data=rdd_for(keyspace,table_name,None)\
+\
+pairs=nasalogs_data.map(lambda a: (a['host'],(1,int(a['bytes'])))).reduceByKey(add_tuples)\
+\
+values=pairs.map(lambda (a,(x,y)):(1,x,y,x*y,x*x,y*y)).reduce(add_tuples)\
+\
+sum_n=values[0]\
+sum_x=values[1]\
+sum_y=values[2]\
+sum_xy=values[3]\
+sum_xx=values[4]\
+sum_yy=values[5]\
+\
+a=(sum_n*sum_xy-sum_x*sum_y)\
+\
+b= (math.sqrt(sum_n*sum_xx-sum_x*sum_x) * math.sqrt(sum_n*sum_yy-sum_y*sum_y))\
+\
+r=a/b\
+\
+rsquare=math.pow(r,2)\
+\
+result=sc.parallelize(["r = %f \\nr^2 = %f" %(r,rsquare)]).coalesce(1)\
+result.saveAsTextFile(output)\
+}

@@ -1,0 +1,59 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1504\cocoasubrtf820
+{\fonttbl\f0\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\margl1440\margr1440\vieww25400\viewh13180\viewkind0
+\deftab720
+\pard\pardeftab720\sl280\partightenfactor0
+
+\f0\fs24 \cf2 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 #Prithvi Lakshminarayanan\
+#Read_stream\
+\
+from pyspark import SparkConf, SparkContext\
+import sys, datetime\
+from pyspark.streaming import StreamingContext\
+\
+\
+def add_pairs(p1, p2):\
+        return (p1[0]+p2[0], p1[1]+p2[1])\
+\
+def stream(rdd, output):\
+        value_rdd = (rdd.map(lambda line: line.split(" "))\
+                        .map(lambda line: (float(line[0]), float(line[1]))).cache())\
+        value_sum = value_rdd.reduce(lambda a,b: add_pairs(a, b))\
+        N = value_rdd.count()\
+\
+        \
+        mean_x = 1.0*value_sum[0]/N\
+        mean_y = 1.0*value_sum[1]/N\
+\
+       \
+        alpha_m = value_rdd.map(lambda (x,y): (x-mean_x)*(y-mean_y)).reduce(lambda x,y: x+y)\
+        beta_m = value_rdd.map(lambda (x,y): ((x-mean_x)**2)).reduce(lambda a,b: a+b)\
+        \
+	m = 1.0*alpha_m/beta_m\
+        b = mean_y - m*mean_x\
+\
+        outdata = sc.parallelize([(m, b)], numSlices=1)\
+\
+        outdata.saveAsTextFile(output + '/' + datetime.datetime.now().isoformat().replace(':', '-'))\
+\
+\
+def main(sc, ssc, port, output):\
+        stream_rdd = ssc.socketTextStream("cmpt732.csil.sfu.ca", port)\
+        value_rdd = stream_rdd.foreachRDD(lambda rdd: stream(rdd, output))\
+                               \
+\
+        ssc.start()         \
+        ssc.awaitTermination(timeout=300) \
+\
+if __name__ == "__main__":\
+        port = int(sys.argv[1])\
+        output = sys.argv[2]\
+\
+        conf = SparkConf().setAppName('Spark Stream')\
+        sc = SparkContext(conf=conf)\
+        ssc = StreamingContext(sc, 5)\
+        main(sc, ssc, port, output)\
+}

@@ -1,0 +1,172 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1504\cocoasubrtf820
+{\fonttbl\f0\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\sl280\partightenfactor0
+
+\f0\fs24 \cf2 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 import java.io.DataInput;\
+import java.io.DataOutput;\
+import java.io.IOException;\
+\
+import org.apache.hadoop.conf.Configuration;\
+import org.apache.hadoop.conf.Configured;\
+import org.apache.hadoop.fs.Path;\
+import org.apache.hadoop.io.DoubleWritable;\
+import org.apache.hadoop.io.LongWritable;\
+import org.apache.hadoop.io.Text;\
+import org.apache.hadoop.io.Writable;\
+import org.apache.hadoop.mapreduce.Job;\
+import org.apache.hadoop.mapreduce.Mapper;\
+import org.apache.hadoop.mapreduce.Reducer;\
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;\
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;\
+import org.apache.hadoop.util.Tool;\
+import org.apache.hadoop.util.ToolRunner;\
+\
+import com.fasterxml.jackson.databind.JsonNode;\
+import com.fasterxml.jackson.databind.ObjectMapper;\
+\
+\
+public class RedditAverage extends Configured implements Tool \{\
+ \
+    public static class TokenizerMapper\
+    extends Mapper<LongWritable, Text, Text,LongPairWritable>\{\
+ \
+ \
+        @Override\
+        public void map(LongWritable key, Text value, Context context\
+                ) throws IOException, InterruptedException \{\
+        	ObjectMapper json_mapper = new ObjectMapper();\
+ \
+        	\
+        	\
+        	JsonNode data = json_mapper.readValue(value.toString(), JsonNode.class);\
+        	LongPairWritable pair = new LongPairWritable();\
+        	String val1=data.get("subreddit").textValue();\
+        	Long val2=data.get("score").longValue();\
+        	pair.set(1,val2);\
+        	context.write(new Text(val1),pair);\
+        	\
+        \}\
+    \}\
+        \
+        \
+    public static class IntSumReducer\
+    extends Reducer<Text, LongPairWritable, Text, DoubleWritable> \{\
+        private DoubleWritable result = new DoubleWritable();\
+ \
+        @Override\
+        public void reduce(Text key, Iterable<LongPairWritable> values,\
+        Context context\
+                ) throws IOException, InterruptedException \{\
+             \
+            double sum1=0 ,sum2=0 ,avg=0;\
+            for (LongPairWritable val : values) \{\
+                sum1 += val.get_0();\
+                sum2 += val.get_1();\
+            \}\
+            avg=sum2/sum1;\
+            result.set(avg);\
+            context.write(key, result);\
+        \}\
+    \}\
+ \
+    public static class Combiner\
+    extends Reducer<Text, LongPairWritable, Text, LongPairWritable> \{\
+        private LongPairWritable result = new LongPairWritable();\
+ \
+        @Override\
+        public void reduce(Text key, Iterable<LongPairWritable> values,\
+        Context context\
+                ) throws IOException, InterruptedException \{\
+             \
+            long sum1=0 ,sum2=0;\
+            for (LongPairWritable val : values) \{\
+                sum1 += val.get_0();\
+                sum2 += val.get_1();\
+            \}\
+            \
+            result.set(sum1,sum2);\
+            context.write(key, result);\
+        \}\
+    \}\
+    \
+    \
+    \
+    \
+     public static class LongPairWritable implements Writable \{\
+    	private long a;\
+    	private long b;\
+    	private LongWritable writ = new LongWritable();\
+\
+    	public LongPairWritable(long a, long b) \{\
+    		this.a = a;\
+    		this.b = b;\
+    	\}\
+\
+    	public LongPairWritable() \{\
+    		this(0, 0);\
+    	\}\
+    	\
+    	public long get_0() \{\
+    		return a;\
+    	\}\
+    	public long get_1() \{\
+    		return b;\
+    	\}\
+    	public void set(long a, long b) \{\
+    		this.a = a;\
+    		this.b = b;		\
+    	\}\
+\
+    	public void write(DataOutput out) throws IOException \{\
+    		writ.set(a);\
+    		writ.write(out);\
+    		writ.set(b);\
+    		writ.write(out);\
+    	\}\
+    	public void readFields(DataInput in) throws IOException \{\
+    		writ.readFields(in);\
+    		a = writ.get();\
+    		writ.readFields(in);\
+    		b = writ.get();\
+    	\}\
+    	\
+    	public String toString() \{\
+    		return "(" + Long.toString(a) + "," + Long.toString(b) + ")";\
+    	\}\
+\
+    \}\
+    \
+    public static void main(String[] args) throws Exception \{\
+        int res = ToolRunner.run(new Configuration(), new RedditAverage(), args);\
+        System.exit(res);\
+    \}\
+ \
+    @Override\
+    public int run(String[] args) throws Exception \{\
+        Configuration conf = this.getConf();\
+        Job job = Job.getInstance(conf, "Reddit average");\
+        job.setJarByClass(RedditAverage.class);\
+ \
+        job.setInputFormatClass(MultiLineJSONInputFormat.class);\
+ \
+        job.setMapperClass(TokenizerMapper.class);\
+        //job.setCombinerClass(LongSumReducer.class);\
+        job.setReducerClass(IntSumReducer.class);\
+ \
+        job.setMapOutputKeyClass(Text.class);\
+        job.setMapOutputValueClass(LongPairWritable.class);\
+        job.setOutputKeyClass(Text.class);\
+        job.setOutputValueClass(DoubleWritable.class);\
+        job.setOutputFormatClass(TextOutputFormat.class);\
+        TextInputFormat.addInputPath(job, new Path(args[0]));\
+        TextOutputFormat.setOutputPath(job, new Path(args[1]));\
+ \
+        return job.waitForCompletion(true) ? 0 : 1;\
+    \}\
+\}\
+}
